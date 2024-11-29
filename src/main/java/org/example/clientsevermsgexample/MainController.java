@@ -123,46 +123,33 @@ public class MainController implements Initializable {
     String message;
 
     private void runServer() {
-        try {
+        try (ServerSocket serverSocket = new ServerSocket(6666)) {
+            updateServer("Server is running and waiting for clients...");
+            while (true) {
+                Socket clientSocket = serverSocket.accept();
+                updateServer("Client connected!");
 
-            ServerSocket serverSocket = new ServerSocket(6666);
-            updateServer("Server is running and waiting for a client...");
-            while (true) { // Infinite loop
-                try {
-                    Socket clientSocket = serverSocket.accept();
-                    updateServer("Client connected!");
-
-                    new Thread(() -> {
-                        try {
-                            sleep(3000);
-                        } catch (InterruptedException e) {
-                            throw new RuntimeException(e);
-                        }
-                    });
-                    DataInputStream dis = new DataInputStream(clientSocket.getInputStream());
-                    DataOutputStream dos = new DataOutputStream(clientSocket.getOutputStream());
-
-                    message = dis.readUTF();
-                    updateServer("Message from client: " + message);
-
-                    // Sending a response back to the client
-                    dos.writeUTF("Received: " + message);
-
-                    dis.close();
-                    dos.close();
-
-                } catch (IOException e) {
-                    updateServer("Error: " + e.getMessage());
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-                if (message.equalsIgnoreCase("exit")) break;
-
+                new Thread(() -> handleClient(clientSocket)).start();
             }
         } catch (IOException e) {
-            updateServer("Error: " + e.getMessage());
+            updateServer("Server Error: " + e.getMessage());
         }
     }
+
+    private void handleClient(Socket clientSocket) {
+        try (DataInputStream dis = new DataInputStream(clientSocket.getInputStream());
+             DataOutputStream dos = new DataOutputStream(clientSocket.getOutputStream())) {
+            String message;
+            while ((message = dis.readUTF()) != null) {
+                updateServer("Client: " + message);
+                // Echo the message back to the client
+                dos.writeUTF("Server: " + message);
+            }
+        } catch (IOException e) {
+            updateServer("Client disconnected or error: " + e.getMessage());
+        }
+    }
+
 
     private void updateServer(String message) {
         // Run on the UI thread
@@ -201,28 +188,47 @@ public class MainController implements Initializable {
 
     }
 
-
+    private Socket socket;
+    private DataOutputStream dos;
     private void connectToServer(ActionEvent event) {
+        new Thread(() -> {
+            try {
+                socket = new Socket("localhost", 6666);
+                dos = new DataOutputStream(socket.getOutputStream());
+                DataInputStream dis = new DataInputStream(socket.getInputStream());
 
+                updateTextClient("Connected to server!");
 
-        try {
-            socket1 = new Socket("localhost", 6666);
+                // Thread to listen for incoming messages
+                new Thread(() -> {
+                    try {
+                        String message;
+                        while ((message = dis.readUTF()) != null) {
+                            updateTextClient(message);
+                        }
+                    } catch (IOException e) {
+                        updateTextClient("Connection closed: " + e.getMessage());
+                    }
+                }).start();
+            } catch (IOException e) {
+                updateTextClient("Error connecting to server: " + e.getMessage());
+            }
+        }).start();
+    }
 
-            DataOutputStream dos = new DataOutputStream(socket1.getOutputStream());
-            DataInputStream dis = new DataInputStream(socket1.getInputStream());
-
-            dos.writeUTF(msgText.getText());
-            String response = dis.readUTF();
-            updateTextClient("Server response: " + response + "\n");
-
-            dis.close();
-            dos.close();
-            socket1.close();
-        } catch (Exception e) {
-            updateTextClient("Error: " + e.getMessage() + "\n");
+    @FXML
+    private void sendMessage(ActionEvent event) {
+        String message = msgText.getText();
+        if (message.isEmpty() || dos == null) {
+            return;
         }
-
-
+        try {
+            dos.writeUTF(message);
+            updateTextClient("You: " + message);
+            msgText.clear();
+        } catch (IOException e) {
+            updateTextClient("Error sending message: " + e.getMessage());
+        }
     }
 
     private void updateTextClient(String message) {
